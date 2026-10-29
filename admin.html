@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>NITChesszian Admin</title>
+<style>
+:root{--bg:#13181a;--panel:#1b2224;--line:#3a3a2c;--gold:#d4ad55;--green:#7da45a;--cream:#ecefd6;--muted:#a9ad98;--err:#ff8a7a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--cream);font:16px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;padding:24px 16px}
+.wrap{max-width:760px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 4px}
+.muted{color:var(--muted);font-size:.9rem}
+input{width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--line);background:#0e1213;color:var(--cream);font:inherit}
+button{cursor:pointer;border:0;border-radius:9px;padding:10px 16px;font:700 .95rem system-ui,sans-serif}
+.go{background:var(--gold);color:#1b1a10}
+.ok{background:var(--green);color:#10150b}
+.no{background:transparent;color:var(--err);border:1.5px solid var(--err)}
+.tab{background:transparent;color:var(--cream);border:1.5px solid var(--line)}
+.tab.on{background:var(--gold);color:#1b1a10;border-color:var(--gold)}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offset:2px}
+button:disabled{opacity:.5;cursor:wait}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:14px}
+.row{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline}
+.name{font-weight:700;font-size:1.1rem}
+.amt{color:var(--gold);font-weight:700;font-size:1.1rem}
+.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:.8rem;font-weight:700}
+.Pending{background:#4a3f1c;color:var(--gold)}.Approved{background:#26391c;color:#a6d37f}.Rejected{background:#4a2420;color:var(--err)}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+a{color:var(--gold)}
+#err{color:var(--err);margin-top:10px;min-height:1.4em}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:16px 0 4px}
+.spacer{flex:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="login">
+    <h1>Admin login</h1>
+    <p class="muted">NITChesszian donation approvals</p>
+    <form id="lf" style="margin-top:16px">
+      <label for="pw" class="muted">Password</label>
+      <input type="password" id="pw" autocomplete="current-password" style="margin:6px 0 12px">
+      <button class="go" type="submit" id="lb">Log in</button>
+    </form>
+    <div id="err" role="alert"></div>
+  </div>
+
+  <div id="panel" hidden>
+    <div class="row"><h1>Payments</h1><button class="tab" id="out">Log out</button></div>
+    <p class="muted">Check your UPI app for a matching payment before you press Approve.</p>
+    <div class="bar" id="tabs">
+      <button class="tab on" data-f="Pending">Pending</button>
+      <button class="tab" data-f="Approved">Approved</button>
+      <button class="tab" data-f="Rejected">Rejected</button>
+      <button class="tab" data-f="All">All</button>
+      <span class="spacer"></span>
+      <button class="tab" id="refresh">Refresh</button>
+    </div>
+    <div id="list"></div>
+  </div>
+
+</div>
+
+<script>
+const API = "https://script.google.com/macros/s/AKfycbzuWV5Lm540qQ3qa-6x48xaqzLC4xukHL4YiniOVziKVet8e0WWjNA8lqh2b2mxmkEP/exec";
+const $ = id => document.getElementById(id);
+let PW = "", ITEMS = [], FILTER = "Pending";
+
+async function call(body){
+  const r = await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(Object.assign({password:PW},body))});
+  return r.json();
+}
+
+$("lf").addEventListener("submit", async e=>{
+  e.preventDefault();
+  PW = $("pw").value; $("err").textContent = "";
+  $("lb").disabled = true; $("lb").textContent = "Checking...";
+  try{
+    const d = await call({action:"list"});
+    if(!d.ok){ $("err").textContent = d.error === "Wrong password" ? "Wrong password." : "Something went wrong."; PW=""; }
+    else{ ITEMS = d.items; $("login").hidden = true; $("panel").hidden = false; render(); }
+  }catch(x){ $("err").textContent = "Could not connect. Check your internet and try again."; PW=""; }
+  $("lb").disabled = false; $("lb").textContent = "Log in";
+});
+
+async function load(){
+  $("refresh").disabled = true;
+  try{ const d = await call({action:"list"}); if(d.ok){ ITEMS = d.items; render(); } }catch(x){}
+  $("refresh").disabled = false;
+}
+$("refresh").onclick = load;
+$("out").onclick = ()=>{ PW=""; ITEMS=[]; $("pw").value=""; $("panel").hidden=true; $("login").hidden=false; };
+
+$("tabs").addEventListener("click", e=>{
+  const b = e.target.closest("[data-f]"); if(!b) return;
+  FILTER = b.dataset.f;
+  [...$("tabs").querySelectorAll("[data-f]")].forEach(x=>x.classList.toggle("on", x===b));
+  render();
+});
+
+function mk(tag, cls, text){ const el=document.createElement(tag); if(cls) el.className=cls; if(text!==undefined) el.textContent=text; return el; }
+
+function render(){
+  const box = $("list"); box.textContent = "";
+  const items = ITEMS.filter(i => FILTER==="All" || i.status===FILTER);
+  if(!items.length){ box.appendChild(mk("p","muted","Nothing here.")); return; }
+  items.forEach(i=>{
+    const c = mk("div","card");
+    const r1 = mk("div","row");
+    r1.append(mk("span","name",i.name), mk("span","amt","\u20b9"+i.amount));
+    const r2 = mk("div","row"); r2.style.marginTop="6px";
+    const when = new Date(i.time); 
+    r2.append(mk("span","muted", isNaN(when) ? "" : when.toLocaleString()), mk("span","pill "+i.status, i.status));
+    c.append(r1, r2);
+    if(i.txn) c.appendChild(mk("div","muted","Txn ID: "+i.txn));
+    c.appendChild(mk("div","muted","Show on wall: "+i.show));
+    if(String(i.shot).indexOf("https://drive.google.com/")===0){
+      const p = mk("div"); p.style.marginTop="8px";
+      const a = mk("a",null,"View screenshot"); a.href=i.shot; a.target="_blank"; a.rel="noopener";
+      p.appendChild(a); c.appendChild(p);
+    }
+    const btns = mk("div","btns");
+    [["Approve","Approved","ok"],["Reject","Rejected","no"],["Set to pending","Pending","tab"]].forEach(([label,st,cls])=>{
+      if(i.status===st) return;
+      const b = mk("button",cls,label);
+      b.onclick = async ()=>{
+        b.disabled = true;
+        try{
+          const d = await call({action:"status",row:i.row,status:st});
+          if(d.ok){ i.status = st; render(); } else { alert("Could not update: "+(d.error||"error")); b.disabled=false; }
+        }catch(x){ alert("Could not connect. Try again."); b.disabled=false; }
+      };
+      btns.appendChild(b);
+    });
+    c.appendChild(btns);
+    box.appendChild(c);
+  });
+}
+</script>
+</body>
+</html>
